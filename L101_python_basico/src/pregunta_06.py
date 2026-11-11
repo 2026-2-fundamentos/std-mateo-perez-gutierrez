@@ -1,16 +1,24 @@
+import csv
+import gzip
+from collections import defaultdict
+
+
+def _leer():
+    with gzip.open("data/data.csv.gz", "rt", encoding="utf-8", newline="") as f:
+        lineas = f.read().splitlines()
+    sep = "\t" if lineas and "\t" in lineas[0] else ","
+    return [
+        [c.strip() for c in fila]
+        for fila in csv.reader(lineas, delimiter=sep)
+        if len(fila) >= 5 and fila[1].strip().lstrip("-").isdigit()
+    ]
+
+
 def pregunta_06():
-    """
-    La quinta columna (`metrics`) contiene pares `clave:valor` separados por
-    comas. Para cada clave, encuentre el valor mínimo y el valor máximo que
-    aparecen en todo el archivo. Retorne una lista de tuplas
-    `(clave, mínimo, máximo)` ordenada alfabéticamente por la clave.
-
-    Observe que el orden es mínimo y luego máximo, al contrario de la
-    pregunta 5.
-
-    Ejemplo del formato de la respuesta:
-
-        [("aaa", 1, 9), ("bbb", 1, 9), ...]
-    """
-
-    raise NotImplementedError
+    """(clave, mínimo, máximo) de los valores de `metrics`."""
+    valores = defaultdict(list)
+    for f in _leer():
+        for par in f[4].split(","):
+            clave, val = par.split(":")
+            valores[clave.strip()].append(int(val))
+    return [(k, min(v), max(v)) for k, v in sorted(valores.items())]

@@ -1,13 +1,23 @@
+import csv
+import gzip
+from collections import defaultdict
+
+
+def _leer():
+    with gzip.open("data/data.csv.gz", "rt", encoding="utf-8", newline="") as f:
+        lineas = f.read().splitlines()
+    sep = "\t" if lineas and "\t" in lineas[0] else ","
+    return [
+        [c.strip() for c in fila]
+        for fila in csv.reader(lineas, delimiter=sep)
+        if len(fila) >= 5 and fila[1].strip().lstrip("-").isdigit()
+    ]
+
+
 def pregunta_11():
-    """
-    La cuarta columna (`codes`) contiene letras minúsculas separadas por
-    comas. Para cada una de esas letras, sume los valores de la segunda
-    columna (`value`) de los registros en los que aparece. Retorne un
-    diccionario `{letra: suma}` con las letras en orden alfabético.
-
-    Ejemplo del formato de la respuesta:
-
-        {"a": 122, "b": 49, "c": 91, ...}
-    """
-
-    raise NotImplementedError
+    """Suma de `value` por cada letra minúscula de `codes`."""
+    sumas = defaultdict(int)
+    for f in _leer():
+        for codigo in f[3].split(","):
+            sumas[codigo.strip()] += int(f[1])
+    return dict(sorted(sumas.items()))

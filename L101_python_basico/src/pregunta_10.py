@@ -1,14 +1,21 @@
+import csv
+import gzip
+
+
+def _leer():
+    with gzip.open("data/data.csv.gz", "rt", encoding="utf-8", newline="") as f:
+        lineas = f.read().splitlines()
+    sep = "\t" if lineas and "\t" in lineas[0] else ","
+    return [
+        [c.strip() for c in fila]
+        for fila in csv.reader(lineas, delimiter=sep)
+        if len(fila) >= 5 and fila[1].strip().lstrip("-").isdigit()
+    ]
+
+
 def pregunta_10():
-    """
-    Para cada registro del archivo, en el mismo orden en que aparecen,
-    retorne una tupla con la letra de la primera columna (`letter`), la
-    cantidad de elementos de la cuarta columna (`codes`) y la cantidad de
-    pares de la quinta columna (`metrics`). El resultado es una lista con una
-    tupla por registro.
-
-    Ejemplo del formato de la respuesta:
-
-        [("E", 3, 5), ("A", 3, 4), ("B", 4, 4), ...]
-    """
-
-    raise NotImplementedError
+    """(letra, cantidad de codes, cantidad de pares de metrics) por registro."""
+    return [
+        (f[0], len(f[3].split(",")), len(f[4].split(",")))
+        for f in _leer()
+    ]
