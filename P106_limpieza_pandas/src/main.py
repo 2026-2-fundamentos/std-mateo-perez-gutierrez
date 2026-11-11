@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import re
 
 ACTIVITY_DIR = Path(__file__).resolve().parents[1]
 INPUT_FILE = ACTIVITY_DIR / "data" / "ventas.csv"
@@ -183,6 +184,34 @@ def clean_discount_column(df):
 
     return df
 
+def clean_weight_column(df):
+    # Normaliza todos los pesos a kilogramos (float)
+    def convert_value(value):
+        if not isinstance(value, str):
+            return value  # NaN u otros valores se dejan igual
+
+        # "2,5 kg" -> "2.5 kg"
+        value = value.strip().lower().replace(",", ".")
+
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ton|kg|g)?", value)
+        if not match:
+            return value  # formato inesperado, no lo tocamos
+
+        number, unit = match.groups()
+        number = float(number)
+
+        if unit == "ton":
+            number *= 1000  # 0.0025 ton -> 2.5 kg
+        elif unit == "g":
+            number /= 1000  # 10000 g -> 10 kg
+        # unit == "kg" o None: ya está en kg
+
+        return round(number, 4)
+
+    df["weight"] = df["weight"].apply(convert_value)
+
+    return df
+
 
 def main():
     df = pd.read_csv(INPUT_FILE)
@@ -193,6 +222,7 @@ def main():
     df = clean_purchase_date_column(df)
     df = clean_amount_column(df)
     df = clean_discount_column(df)
+    df = clean_weight_column(df)
     df.to_csv(OUTPUT_FILE, index=False)
 
 
