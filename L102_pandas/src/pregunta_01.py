@@ -1,11 +1,5 @@
 def pregunta_01():
-    """
-    ¿Cuántos registros tiene la tabla `data/tbl0.tsv`? Retorne la cantidad
-    como un número entero.
+    import pandas as pd
 
-    Ejemplo del formato de la respuesta:
-
-        40
-    """
-
-    raise NotImplementedError
+    df = pd.read_csv("data/tbl0.tsv", sep="\t")
+    return len(df)

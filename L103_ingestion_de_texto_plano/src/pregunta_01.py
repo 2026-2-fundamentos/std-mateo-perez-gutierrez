@@ -1,29 +1,59 @@
 def pregunta_01():
-    """
-    El archivo `data/clusters_report.txt` es un reporte de clústeres de
-    palabras clave pensado para ser leído por una persona, no por un programa:
-    los encabezados ocupan varias líneas, las columnas están alineadas con
-    espacios y la lista de palabras clave de un clúster continúa en las líneas
-    siguientes.
+    import re
+    import pandas as pd
 
-    Su tarea es convertir ese reporte en un DataFrame de Pandas con una fila
-    por clúster y las columnas:
+    with open("data/clusters_report.txt", "r", encoding="utf-8") as f:
+        lineas = f.read().splitlines()
 
-    - `cluster`: número del clúster, como entero.
-    - `cantidad_de_palabras_clave`: como entero.
-    - `porcentaje_de_palabras_clave`: como número decimal; por ejemplo, el
-      texto `15,9 %` debe quedar como `15.9`.
-    - `principales_palabras_clave`: todas las palabras clave del clúster en un
-      solo texto, separadas por una coma y un único espacio.
+    # Línea que inicia un clúster: número, cantidad, porcentaje con coma y '%',
+    # y luego (opcionalmente) el comienzo de las palabras clave.
+    patron = re.compile(r"^\s*(\d+)\s+(\d+)\s+(\d+(?:,\d+)?)\s*%\s*(.*)$")
 
-    Retorne el DataFrame.
+    registros = []
+    actual = None
 
-    Ejemplo del formato de la respuesta (se omite la última columna):
+    for linea in lineas:
+        m = patron.match(linea)
+        if m:
+            if actual is not None:
+                registros.append(actual)
+            actual = {
+                "cluster": int(m.group(1)),
+                "cantidad_de_palabras_clave": int(m.group(2)),
+                "porcentaje_de_palabras_clave": float(m.group(3).replace(",", ".")),
+                "texto": m.group(4).strip(),
+            }
+        elif actual is not None:
+            # Línea de continuación: solo cuenta si tiene contenido y no es
+            # un separador (----) ni una línea vacía.
+            contenido = linea.strip()
+            if contenido and not set(contenido) <= {"-", " "}:
+                actual["texto"] += " " + contenido
 
-           cluster  cantidad_de_palabras_clave  porcentaje_de_palabras_clave
-        0        1                         105                          15.9
-        1        2                         102                          15.4
-        ...
-    """
+    if actual is not None:
+        registros.append(actual)
 
-    raise NotImplementedError
+    filas = []
+    for r in registros:
+        # Normalizar espacios y limpiar el punto final / comas sobrantes
+        texto = re.sub(r"\s+", " ", r["texto"]).strip().rstrip(".").strip()
+        # Separar por coma, quitar espacios y descartar vacíos
+        palabras = [p.strip() for p in texto.split(",") if p.strip()]
+        filas.append(
+            {
+                "cluster": r["cluster"],
+                "cantidad_de_palabras_clave": r["cantidad_de_palabras_clave"],
+                "porcentaje_de_palabras_clave": r["porcentaje_de_palabras_clave"],
+                "principales_palabras_clave": ", ".join(palabras),
+            }
+        )
+
+    return pd.DataFrame(
+        filas,
+        columns=[
+            "cluster",
+            "cantidad_de_palabras_clave",
+            "porcentaje_de_palabras_clave",
+            "principales_palabras_clave",
+        ],
+    )
