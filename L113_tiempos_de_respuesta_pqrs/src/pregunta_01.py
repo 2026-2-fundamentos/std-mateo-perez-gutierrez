@@ -1,64 +1,92 @@
+import os
+
+import numpy as np
 import pandas as pd
 
 
+def _load(path: str, channel: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df = df.drop_duplicates()  # filas idénticas; record_id vacío sigue siendo válido
+    df["channel"] = channel
+    return df
+
+
 def pregunta_01() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Una entidad pública recibe peticiones, quejas, reclamos y sugerencias
-    (PQRS) por dos canales, la página web y las cartas, y la ley le da 15 días
-    hábiles para responder cada una. Su tarea es medir si la entidad cumple
-    ese plazo.
+    df = pd.concat(
+        [
+            _load("data/historical_requests_letter.csv.gz", "letter"),
+            _load("data/historical_requests_web.csv.gz", "web"),
+        ],
+        ignore_index=True,
+    )
 
-    Los archivos `data/historical_requests_web.csv.gz` y
-    `data/historical_requests_letter.csv.gz` tienen una fila por solicitud
-    recibida entre 2016 y 2021 por cada canal, con su identificador
-    (`record_id`), la fecha de entrada (`in_date`), el día de la semana de
-    entrada (`day_name`) y la fecha de respuesta (`out_date`). Si `out_date`
-    está vacía, la solicitud todavía no ha sido respondida.
+    df["in_date"] = pd.to_datetime(df["in_date"]).dt.normalize()
+    df["out_date"] = pd.to_datetime(df["out_date"]).dt.normalize()
 
-    Tenga en cuenta lo siguiente:
+    df["answered"] = df["out_date"].notna()
+    df["pending"] = ~df["answered"]
 
-    - Algunas solicitudes aparecen repetidas: elimine las filas idénticas
-      dentro de cada canal, para contar cada solicitud una sola vez. Las
-      filas sin `record_id` son solicitudes válidas.
-    - Llame `letter` al canal de las cartas y `web` al de la página web.
-    - Los días hábiles de respuesta son los días de lunes a viernes
-      posteriores a la fecha de entrada, hasta la fecha de respuesta
-      incluida. Por ejemplo, una solicitud que entra un viernes y se responde
-      el lunes siguiente tardó 1 día hábil. No considere los festivos.
-    - Los días calendario de respuesta son la diferencia entre la fecha de
-      respuesta y la de entrada.
-    - Una solicitud cumple el plazo si fue respondida en 15 días hábiles o
-      menos. Una solicitud pendiente no ha cumplido el plazo.
-    - `on_time_rate` es la proporción de solicitudes que cumplen el plazo,
-      sobre el total de solicitudes, incluidas las pendientes.
-    - Las medianas de días se calculan solamente con las solicitudes
-      respondidas.
+    # Días calendario
+    df["calendar_days"] = (df["out_date"] - df["in_date"]).dt.days
 
-    Genere tres archivos en `submission/`, sin el índice de Pandas y con las
-    columnas en el orden indicado:
+    # Días hábiles: lunes a viernes en (in_date, out_date]
+    bd = pd.Series(np.nan, index=df.index)
+    ans = df["answered"]
+    start = (df.loc[ans, "in_date"] + pd.Timedelta(days=1)).values.astype("datetime64[D]")
+    end = (df.loc[ans, "out_date"] + pd.Timedelta(days=1)).values.astype("datetime64[D]")
+    bd.loc[ans] = np.busday_count(start, end)
+    df["business_days"] = bd
 
-    1. `channel_summary.csv`, con una fila por canal, en orden alfabético:
-       `channel`, `requests`, `answered`, `pending`,
-       `median_business_days` y `on_time_rate`.
+    df["on_time"] = df["answered"] & (df["business_days"] <= 15)
+    df["year"] = df["in_date"].dt.year
 
-    2. `yearly_summary.csv`, con una fila por año de entrada y canal,
-       ordenada por año y luego por canal: `year`, `channel`, `requests`,
-       `pending` y `on_time_rate`.
+    # 1. Resumen por canal
+    channel = (
+        df.groupby("channel")
+        .agg(
+            requests=("channel", "size"),
+            answered=("answered", "sum"),
+            pending=("pending", "sum"),
+            median_business_days=("business_days", "median"),
+            on_time_rate=("on_time", "mean"),
+        )
+        .reset_index()
+        .sort_values("channel")
+        .reset_index(drop=True)
+    )
 
-    3. `entry_day_summary.csv`, con una fila por día de entrada, de lunes a
-       domingo, con los dos canales juntos: `day_name`, `requests`,
-       `median_calendar_days` y `median_business_days`.
+    # 2. Resumen por año y canal
+    yearly = (
+        df.groupby(["year", "channel"])
+        .agg(
+            requests=("channel", "size"),
+            pending=("pending", "sum"),
+            on_time_rate=("on_time", "mean"),
+        )
+        .reset_index()
+        .sort_values(["year", "channel"])
+        .reset_index(drop=True)
+    )
 
-    Observe en el tercer archivo cómo cambia la lectura del tiempo de
-    respuesta según se cuenten días calendario o días hábiles.
+    # 3. Resumen por día de entrada (lunes a domingo, ambos canales)
+    df["dow"] = df["in_date"].dt.dayofweek
+    entry = (
+        df.groupby("day_name")
+        .agg(
+            dow=("dow", "min"),
+            requests=("channel", "size"),
+            median_calendar_days=("calendar_days", "median"),
+            median_business_days=("business_days", "median"),
+        )
+        .reset_index()
+        .sort_values("dow")
+        .drop(columns="dow")
+        .reset_index(drop=True)
+    )
 
-    La función también debe retornar las tres tablas, en el mismo orden.
+    os.makedirs("submission", exist_ok=True)
+    channel.to_csv("submission/channel_summary.csv", index=False)
+    yearly.to_csv("submission/yearly_summary.csv", index=False)
+    entry.to_csv("submission/entry_day_summary.csv", index=False)
 
-    Ejemplo del formato de `channel_summary.csv`:
-
-        channel,requests,answered,pending,median_business_days,on_time_rate
-        letter,28138,...
-        ...
-    """
-
-    raise NotImplementedError
+    return channel, yearly, entry

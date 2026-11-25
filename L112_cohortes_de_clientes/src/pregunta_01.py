@@ -1,47 +1,95 @@
+import os
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 
 def build_cohort_analysis() -> pd.DataFrame:
-    """
-    Una tienda quiere saber si sus clientes vuelven a comprar después de su
-    primera compra. Para responder, agrupe a los clientes en cohortes según
-    el mes de su primera compra y mida, mes a mes, qué proporción de cada
-    cohorte vuelve a comprar. Use `data/sales.csv.gz`, que tiene una fila por
-    orden con su cliente (`CustomerID`) y su fecha (`OrderDate`).
+    df = pd.read_csv("data/sales.csv.gz", usecols=["CustomerID", "OrderDate"])
+    df["OrderDate"] = pd.to_datetime(df["OrderDate"])
+    df = df.dropna(subset=["CustomerID", "OrderDate"])
 
-    Use estas definiciones:
+    df["order_month"] = df["OrderDate"].dt.to_period("M")
+    df["cohort"] = df.groupby("CustomerID")["order_month"].transform("min")
+    df["period_index"] = (
+        (df["order_month"].dt.year - df["cohort"].dt.year) * 12
+        + (df["order_month"].dt.month - df["cohort"].dt.month)
+    )
 
-    - `cohort_month`: el mes de la primera compra del cliente, escrito como
-      `AAAA-MM`.
-    - `period_index`: los meses transcurridos desde `cohort_month`; es 0 en el
-      mes de la primera compra, 1 en el mes siguiente, y así sucesivamente.
-    - `active_customers`: la cantidad de clientes distintos de la cohorte que
-      compraron en ese período.
-    - `cohort_size`: la cantidad de clientes de la cohorte, es decir, sus
-      clientes activos en el período 0.
-    - `retention_rate`: `active_customers` sobre `cohort_size`.
+    cohort = (
+        df.groupby(["cohort", "period_index"])["CustomerID"]
+        .nunique()
+        .rename("active_customers")
+        .reset_index()
+    )
+    sizes = (
+        cohort[cohort["period_index"] == 0]
+        .set_index("cohort")["active_customers"]
+        .rename("cohort_size")
+    )
+    cohort = cohort.merge(sizes, on="cohort")
+    cohort["retention_rate"] = cohort["active_customers"] / cohort["cohort_size"]
+    cohort["cohort_month"] = cohort["cohort"].astype(str)
+    cohort = (
+        cohort.sort_values(["cohort", "period_index"])[
+            [
+                "cohort_month",
+                "period_index",
+                "active_customers",
+                "cohort_size",
+                "retention_rate",
+            ]
+        ]
+        .reset_index(drop=True)
+    )
 
-    Genere dos archivos en `submission/`:
+    os.makedirs("submission", exist_ok=True)
+    cohort.to_csv("submission/cohort_retention.csv", index=False)
 
-    1. `cohort_retention.csv`, sin el índice de Pandas, con las columnas
-       `cohort_month`, `period_index`, `active_customers`, `cohort_size` y
-       `retention_rate`, y una fila por cada combinación cohorte–período
-       observada, ordenadas por cohorte y período.
+    # Mapa de calor: lo no observable queda como NaN (vacío)
+    pivot = cohort.pivot(
+        index="cohort_month", columns="period_index", values="retention_rate"
+    ).sort_index()
+    data = np.ma.masked_invalid(pivot.to_numpy())
 
-    2. `cohort_retention_heatmap.png`, un mapa de calor de `retention_rate`
-       con una fila por cohorte (eje vertical) y una columna por período
-       (eje horizontal). Muestre los valores como porcentajes. Los períodos
-       que todavía no se pueden observar para una cohorte no significan
-       retención cero: déjelos vacíos en el mapa.
+    fig, ax = plt.subplots(
+        figsize=(max(8, 0.6 * pivot.shape[1] + 3), max(5, 0.4 * pivot.shape[0] + 2))
+    )
+    cmap = plt.get_cmap("YlGnBu").copy()
+    cmap.set_bad("white")
+    im = ax.imshow(data, cmap=cmap, aspect="auto", vmin=0, vmax=1)
 
-    La función también debe retornar la tabla de retención.
+    ax.set_xticks(range(pivot.shape[1]))
+    ax.set_xticklabels(pivot.columns)
+    ax.set_yticks(range(pivot.shape[0]))
+    ax.set_yticklabels(pivot.index)
+    ax.set_xlabel("Período (meses desde la primera compra)")
+    ax.set_ylabel("Cohorte (mes de primera compra)")
+    ax.set_title("Retención de clientes por cohorte")
 
-    Ejemplo del formato de `cohort_retention.csv`:
+    values = pivot.to_numpy()
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            v = values[i, j]
+            if not np.isnan(v):
+                ax.text(
+                    j,
+                    i,
+                    f"{v:.0%}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="white" if v > 0.5 else "black",
+                )
 
-        cohort_month,period_index,active_customers,cohort_size,retention_rate
-        2022-01,0,100,100,1.0
-        2022-01,1,26,100,0.26
-        ...
-    """
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0))
+    fig.tight_layout()
+    fig.savefig("submission/cohort_retention_heatmap.png", dpi=150)
+    plt.close(fig)
 
-    raise NotImplementedError
+    return cohort
